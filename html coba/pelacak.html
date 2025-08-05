@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Navigator Pelacak HP</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 300px; margin-bottom: 10px; }
+        .status-dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:#ccc; vertical-align:middle; margin-right:5px;}
+        .active { background: #38c172; }
+        .inactive { background: #ccc; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <h2>Navigator Pelacak HP</h2>
+    <div id="map"></div>
+    <div>
+        <b>Latitude:</b> <span id="latitude">-</span> |
+        <b>Longitude:</b> <span id="longitude">-</span> |
+        <b>Akurasi:</b> <span id="accuracy">-</span> |
+        <b>Kecepatan:</b> <span id="speed">-</span> |
+        <b>Update:</b> <span id="lastUpdate">-</span>
+    </div>
+    <div id="connectionStatus">
+        <span class="status-dot inactive"></span>
+        <span>Disconnected</span>
+    </div>
+    <div>
+        <b>Baterai:</b> <span id="batteryStatus">-</span>
+    </div>
+    <div style="margin-top:10px;">
+        <button id="trackBtn">Start Tracking</button>
+        <button id="shareBtn">Share Location</button>
+        <button id="historyBtn">View History</button>
+    </div>
+    <div id="historySection" class="hidden">
+        <h4>Riwayat Lokasi</h4>
+        <div id="historyList"></div>
+    </div>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        let map, marker, accuracyCircle, watchId = null, locationHistory = [];
+        let mapInitialized = false;
+
+        function initMap(lat = -6.2, lng = 106.8) {
+            map = L.map('map').setView([lat, lng], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            marker = L.marker([lat, lng]).addTo(map);
+            accuracyCircle = L.circle([lat, lng], {radius: 0, color: '#3182ce', fillOpacity: 0.2}).addTo(map);
+            mapInitialized = true;
+        }
+
+        function updateLocation(pos) {
+            const {latitude, longitude, accuracy, speed} = pos.coords;
+            document.getElementById('latitude').textContent = latitude.toFixed(6);
+            document.getElementById('longitude').textContent = longitude.toFixed(6);
+            document.getElementById('accuracy').textContent = `${accuracy} meters`;
+            document.getElementById('speed').textContent = speed ? (speed * 3.6).toFixed(1) + ' km/h' : '0 km/h';
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+
+            if (!mapInitialized) initMap(latitude, longitude);
+            marker.setLatLng([latitude, longitude]);
+            accuracyCircle.setLatLng([latitude, longitude]).setRadius(accuracy);
+            map.setView([latitude, longitude], map.getZoom());
+
+            locationHistory.push({
+                time: new Date().toLocaleTimeString(),
+                lat: latitude,
+                lng: longitude,
+                acc: accuracy
+            });
+        }
+
+        trackBtn.onclick = function() {
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+                trackBtn.textContent = "Start Tracking";
+                document.querySelector('.status-dot').classList.replace('active', 'inactive');
+                document.querySelector('#connectionStatus span:last-child').textContent = "Disconnected";
+            } else {
+                if (navigator.geolocation) {
+                    watchId = navigator.geolocation.watchPosition(updateLocation, err => {
+                        alert("Gagal mendapatkan lokasi: " + err.message);
+                    }, {enableHighAccuracy: true, maximumAge: 1000});
+                    trackBtn.textContent = "Stop Tracking";
+                    document.querySelector('.status-dot').classList.replace('inactive', 'active');
+                    document.querySelector('#connectionStatus span:last-child').textContent = "Connected";
+                } else {
+                    alert("Geolocation tidak didukung browser Anda.");
+                }
+            }
+        };
+
+        shareBtn.onclick = function() {
+            if (!locationHistory.length) return alert("Belum ada lokasi!");
+            const last = locationHistory[locationHistory.length-1];
+            const url = `https://www.google.com/maps?q=${last.lat},${last.lng}`;
+            navigator.clipboard.writeText(url);
+            alert("Link lokasi telah disalin:\n" + url);
+        };
+
+        historyBtn.onclick = function() {
+            const section = document.getElementById('historySection');
+            section.classList.toggle('hidden');
+            const list = document.getElementById('historyList');
+            list.innerHTML = locationHistory.map(loc =>
+                `<div class="flex justify-between text-sm">
+                    <span>${loc.time}</span>
+                    <span>${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} (${loc.acc}m)</span>
+                </div>`
+            ).join('');
+        };
+
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(bat => {
+                function updateBat() {
+                    document.getElementById('batteryStatus').textContent = Math.round(bat.level*100) + ' %';
+                }
+                bat.addEventListener('levelchange', updateBat);
+                updateBat();
+            });
+        }
+    </script>
+</body>
+</html>
